@@ -3,6 +3,11 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+# Jobs here do not check out. gh derives the repo from git remote, so
+# without GH_REPO every gh call dies with 'not a git repository'.
+env:
+  GH_REPO: ${{ github.repository }}
+
 permissions:
   contents: read
 jobs:
@@ -14,7 +19,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: What did workflow_run give me
@@ -45,6 +50,8 @@ jobs:
                   --jq '.[] | select(.labels[].name == "agent") | .number' | head -1)
           echo "resolved PR = '${NUM:-<none>}'   (QUESTION 2)"
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          # Assert the gate. An empty NUM used to skip review+gatekeep silently.
+          test -n "$NUM" || { echo "::error::could not resolve a PR for $SHA"; exit 1; }
 
       - name: Red goes back
         if: steps.pr.outputs.number != '' && github.event.workflow_run.conclusion != 'success'
@@ -62,7 +69,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -80,7 +87,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -93,4 +100,9 @@ jobs:
           gh pr view "$PR" --json labels -q '[.labels[].name]|join(",")'
 
           echo "Enqueueing (gh pr merge enqueues when a merge queue is required)"
-          gh pr merge "$PR" --squash --delete-branch || echo "merge/enqueue refused — read why above"
+          # --delete-branch is REFUSED when a merge queue is enabled; the queue
+          # deletes the branch itself. Merge method comes from the ruleset.
+          gh pr merge "$PR" || echo "merge/enqueue refused — read why above"
+          echo "--- queue state ---"
+          gh pr view "$PR" --json state,mergeStateStatus \
+            -q '"state=\(.state) merge=\(.mergeStateStatus)"'

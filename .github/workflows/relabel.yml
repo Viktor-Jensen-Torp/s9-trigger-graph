@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       pr: { description: "pull request number", required: true }
+# Jobs here do not check out. gh derives the repo from git remote, so
+# without GH_REPO every gh call dies with 'not a git repository'.
+env:
+  GH_REPO: ${{ github.repository }}
+
 permissions:
   contents: read
 jobs:
@@ -16,7 +21,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - env:
           GH_TOKEN: ${{ steps.token.outputs.token }}

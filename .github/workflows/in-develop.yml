@@ -1,0 +1,74 @@
+# SPIKE COPY. Upstream: pi-github-test/workflows/in-develop.yml
+# Uses the single spike App instead of a dedicated releaser App.
+
+# Applies `in:develop` to every issue a merged pull request closes.
+#
+# ADR 0011: `Done` means merged to `main`. The middle state — merged to
+# `develop`, awaiting release — has to be readable by a human, by a Project view
+# and by any harness, so it is a label on the issue (`0001`, `0003`).
+#
+# Why not the gatekeeper, which already acts at merge time: it only *enqueues*.
+# The merge lands minutes later, inside the queue, in a run the gatekeeper is
+# not part of. It never sees the merge happen.
+#
+# Why not rely on `Closes #n`: GitHub only auto-closes linked issues when the
+# pull request merges into the DEFAULT branch, and ours is `main`
+# (`NOTES.md` section 18). Merging to `develop` closes nothing.
+name: in-develop
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+# This job never checks out. Without GH_REPO every `gh` call dies with
+# "not a git repository" (`NOTES.md` section 17b).
+env:
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  label:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Label every issue this pull request closes
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # closingIssuesReferences is the linkage GitHub itself resolved from
+          # the body. Regexing for `Closes #n` would miss the other accepted
+          # keywords and would match the phrase inside code blocks.
+          ISSUES=$(gh pr view "$PR" --json closingIssuesReferences \
+                     -q '.closingIssuesReferences[].number')
+
+          if [ -z "$ISSUES" ]; then
+            echo "::warning::pull request #$PR closes no issue — nothing to label"
+            exit 0
+          fi
+
+          for N in $ISSUES; do
+            gh issue edit "$N" --add-label "in:develop"
+            echo "issue #$N -> in:develop"
+          done
+
+          # Assert it. A label that did not apply looks exactly like one that
+          # did, and the release reads this label to build its list.
+          for N in $ISSUES; do
+            gh issue view "$N" --json labels -q '[.labels[].name]|join(",")' \
+              | grep -q 'in:develop' \
+              || { echo "::error::issue #$N did not take the in:develop label"; exit 1; }
+          done
