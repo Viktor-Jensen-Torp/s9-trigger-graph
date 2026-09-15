@@ -1,0 +1,44 @@
+name: echo-rework
+on:
+  pull_request:
+    types: [labeled]
+concurrency:
+  group: rework-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  rework:
+    if: github.event.label.name == 'needs:rework'
+    runs-on: ubuntu-latest
+    steps:
+      - name: THIS FIRING IS THE ANSWER TO QUESTION 1
+        run: |
+          echo "actor that applied the label = ${{ github.actor }}"
+          echo "pr = ${{ github.event.pull_request.number }}"
+          echo "If the label came from an App token and this ran, App tokens chain."
+
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Push an empty commit and see whether CI re-fires
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          git config user.name  "echo-reworker"
+          git config user.email "echo@example.invalid"
+          git commit --allow-empty -m "s9: rework probe"
+          git push origin "HEAD:$BRANCH"
+          gh pr edit "$PR" --remove-label needs:rework
+          echo "Pushed. QUESTION 2: does CI re-run, and does echo-review find PR $PR?"

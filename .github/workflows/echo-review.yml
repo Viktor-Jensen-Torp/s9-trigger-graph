@@ -1,0 +1,96 @@
+name: echo-review
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: What did workflow_run give me
+        run: |
+          echo "conclusion  = ${{ github.event.workflow_run.conclusion }}"
+          echo "head_sha    = ${{ github.event.workflow_run.head_sha }}"
+          echo "head_branch = ${{ github.event.workflow_run.head_branch }}"
+          echo "event       = ${{ github.event.workflow_run.event }}"
+          echo "--- QUESTION 5 again, from the other side ---"
+          case "${{ github.event.workflow_run.head_branch }}" in
+            gh-readonly-queue/*)
+              echo "MERGE GROUP. Parsed PR number:"
+              sed -n 's/.*pr-\([0-9][0-9]*\).*/\1/p' <<< "${{ github.event.workflow_run.head_branch }}" \
+                | tee /dev/stderr | grep -q . \
+                || echo "!!! NO pr-<n> IN THE BRANCH NAME — review.yml's assumption is WRONG"
+              ;;
+            *) echo "ordinary branch" ;;
+          esac
+
+      - name: Find the pull request
+        id: pr
+        if: "!startsWith(github.event.workflow_run.head_branch, 'gh-readonly-queue/')"
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          NUM=$(gh pr list --search "$SHA" --state open --json number,labels \
+                  --jq '.[] | select(.labels[].name == "agent") | .number' | head -1)
+          echo "resolved PR = '${NUM:-<none>}'   (QUESTION 2)"
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Red goes back
+        if: steps.pr.outputs.number != '' && github.event.workflow_run.conclusion != 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          gh pr edit "${{ steps.pr.outputs.number }}" --add-label needs:rework
+          echo "Labelled needs:rework with an APP token — does echo-rework fire? (QUESTION 1)"
+
+  review:
+    needs: triage
+    if: needs.triage.outputs.number != '' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PR: ${{ needs.triage.outputs.number }}
+        run: |
+          SHA=$(gh pr view "$PR" --json headRefOid -q .headRefOid)
+          gh pr comment "$PR" --body "VERDICT: merge
+          Reviewed $SHA (echo only)."
+
+  gatekeep:
+    needs: [triage, review]
+    if: needs.triage.outputs.number != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          PR: ${{ needs.triage.outputs.number }}
+        run: |
+          # Two writes at once — QUESTION 4, do concurrent label edits collide.
+          gh pr edit "$PR" --add-label strike:1 &
+          gh pr edit "$PR" --add-label strike:2 &
+          wait
+          gh pr view "$PR" --json labels -q '[.labels[].name]|join(",")'
+
+          echo "Enqueueing (gh pr merge enqueues when a merge queue is required)"
+          gh pr merge "$PR" --squash --delete-branch || echo "merge/enqueue refused — read why above"

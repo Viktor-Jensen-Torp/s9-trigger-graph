@@ -1,0 +1,44 @@
+name: echo-implement
+on:
+  issues:
+    types: [labeled]
+concurrency:
+  group: implement-${{ github.event.issue.number }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  implement:
+    if: github.event.label.name == 'ready-to-develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v5
+        with: { ref: develop, fetch-depth: 0, token: "${{ steps.token.outputs.token }}" }
+
+      - name: Who triggered this, and how
+        run: |
+          echo "actor=${{ github.actor }}  event=${{ github.event_name }}"
+          echo "label=${{ github.event.label.name }}  issue=${{ github.event.issue.number }}"
+
+      - name: Fake the work
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          N: ${{ github.event.issue.number }}
+        run: |
+          git config user.name  "echo-implementer"
+          git config user.email "echo@example.invalid"
+          git switch -c "agent/issue-$N"
+          echo "probe $(date -u +%FT%TZ)" > "probe-$N.txt"
+          git add . && git commit -m "s9: probe for issue #$N"
+          git push -u origin "agent/issue-$N"
+
+          # The plan goes in the body — ADR 0007 — so the shape is exercised too.
+          printf '## Plan\n\n_echo only, no plan_\n\n---\n\nCloses #%s\n' "$N" > body.md
+          gh pr create --base develop --head "agent/issue-$N" \
+            --title "s9: issue #$N" --body-file body.md --label agent

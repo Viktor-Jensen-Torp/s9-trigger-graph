@@ -1,0 +1,26 @@
+# Applies needs:rework with an APP token, on demand. This is the clean test of
+# question 1, separated from everything else.
+#
+#   gh workflow run relabel.yml -f pr=1
+name: relabel
+on:
+  workflow_dispatch:
+    inputs:
+      pr: { description: "pull request number", required: true }
+permissions:
+  contents: read
+jobs:
+  relabel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          gh pr edit "${{ inputs.pr }}" --remove-label needs:rework || true
+          gh pr edit "${{ inputs.pr }}" --add-label needs:rework
+          echo "Applied with an App token. echo-rework should now fire."

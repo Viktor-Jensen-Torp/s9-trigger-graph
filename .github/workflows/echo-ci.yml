@@ -1,0 +1,31 @@
+# MUST be named CI — echo-review triggers on `workflow_run` matching it literally.
+# MUST include merge_group, or queue entries die at the status-check timeout.
+name: CI
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [develop]
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: What am I running on
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          echo "head_ref=${{ github.head_ref }}"
+          echo "--- QUESTION 5: the merge-group branch name, verbatim ---"
+          echo "merge_group.head_ref  = ${{ github.event.merge_group.head_ref }}"
+          echo "merge_group.base_ref  = ${{ github.event.merge_group.base_ref }}"
+          echo "merge_group.head_sha  = ${{ github.event.merge_group.head_sha }}"
+
+      # Lets the red path be driven on demand.
+      - name: Fail if asked
+        if: contains(github.event.pull_request.labels.*.name, 'force:red')
+        run: |
+          echo "force:red is set — failing deliberately."
+          exit 1
