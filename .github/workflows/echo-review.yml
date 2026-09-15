@@ -100,4 +100,9 @@ jobs:
           gh pr view "$PR" --json labels -q '[.labels[].name]|join(",")'
 
           echo "Enqueueing (gh pr merge enqueues when a merge queue is required)"
-          gh pr merge "$PR" --squash --delete-branch || echo "merge/enqueue refused — read why above"
+          # --delete-branch is REFUSED when a merge queue is enabled; the queue
+          # deletes the branch itself. Merge method comes from the ruleset.
+          gh pr merge "$PR" || echo "merge/enqueue refused — read why above"
+          echo "--- queue state ---"
+          gh pr view "$PR" --json state,mergeStateStatus,isInMergeQueue \
+            -q '"state=\(.state) merge=\(.mergeStateStatus) inQueue=\(.isInMergeQueue)"'
