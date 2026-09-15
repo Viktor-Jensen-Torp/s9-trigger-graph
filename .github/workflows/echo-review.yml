@@ -104,5 +104,5 @@ jobs:
           # deletes the branch itself. Merge method comes from the ruleset.
           gh pr merge "$PR" || echo "merge/enqueue refused — read why above"
           echo "--- queue state ---"
-          gh pr view "$PR" --json state,mergeStateStatus,isInMergeQueue \
-            -q '"state=\(.state) merge=\(.mergeStateStatus) inQueue=\(.isInMergeQueue)"'
+          gh pr view "$PR" --json state,mergeStateStatus \
+            -q '"state=\(.state) merge=\(.mergeStateStatus)"'
