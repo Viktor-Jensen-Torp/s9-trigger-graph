@@ -3,6 +3,11 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+# Jobs here do not check out. gh derives the repo from git remote, so
+# without GH_REPO every gh call dies with 'not a git repository'.
+env:
+  GH_REPO: ${{ github.repository }}
+
 permissions:
   contents: read
 jobs:
@@ -45,6 +50,8 @@ jobs:
                   --jq '.[] | select(.labels[].name == "agent") | .number' | head -1)
           echo "resolved PR = '${NUM:-<none>}'   (QUESTION 2)"
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          # Assert the gate. An empty NUM used to skip review+gatekeep silently.
+          test -n "$NUM" || { echo "::error::could not resolve a PR for $SHA"; exit 1; }
 
       - name: Red goes back
         if: steps.pr.outputs.number != '' && github.event.workflow_run.conclusion != 'success'
