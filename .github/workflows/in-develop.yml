@@ -11,9 +11,11 @@
 # The merge lands minutes later, inside the queue, in a run the gatekeeper is
 # not part of. It never sees the merge happen.
 #
-# Why not rely on `Closes #n`: GitHub only auto-closes linked issues when the
-# pull request merges into the DEFAULT branch, and ours is `main`
-# (`NOTES.md` section 18). Merging to `develop` closes nothing.
+# Why the body is parsed by hand: GitHub only auto-closes linked issues when
+# the pull request merges into the DEFAULT branch (`NOTES.md` section 18) — and
+# it does not even record the link, so `closingIssuesReferences` is empty for a
+# pull request into `develop` (`NOTES.md` section 19). Nothing native survives
+# here; the parse is the only source.
 name: in-develop
 
 on:
@@ -46,14 +48,31 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
 
-          # closingIssuesReferences is the linkage GitHub itself resolved from
-          # the body. Regexing for `Closes #n` would miss the other accepted
-          # keywords and would match the phrase inside code blocks.
-          ISSUES=$(gh pr view "$PR" --json closingIssuesReferences \
-                     -q '.closingIssuesReferences[].number')
+          # GitHub does NOT create a closing-issue link for a pull request whose
+          # base is not the DEFAULT branch, so `closingIssuesReferences` comes
+          # back empty here even when the body says `Closes #n`
+          # (`NOTES.md` section 19 — established by running it, not by reading).
+          # So parse the body, skipping fenced code blocks, and accept every
+          # keyword GitHub itself accepts.
+          parse_closes() {
+            awk '/^[[:space:]]*```/{f=!f; next} !f' \
+            | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+            | grep -oE '[0-9]+' | sort -un
+          }
+
+          ISSUES=$(gh pr view "$PR" --json body -q .body | parse_closes)
+
+          # An agent branch carries the issue number too. Belt and braces: a
+          # body that lost its `Closes #n` still lands, and a human's branch
+          # that has no such name still works through the body (`0008`).
+          case "$HEAD" in
+            agent/issue-*) ISSUES=$(printf '%s\n%s\n' "$ISSUES" "${HEAD##*issue-}" \
+                                      | grep -E '^[0-9]+$' | sort -un) ;;
+          esac
 
           if [ -z "$ISSUES" ]; then
             echo "::warning::pull request #$PR closes no issue — nothing to label"
