@@ -14,7 +14,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: What did workflow_run give me
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/create-github-app-token@v2
         id: token
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
+          app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
